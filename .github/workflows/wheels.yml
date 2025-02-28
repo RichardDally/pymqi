@@ -1,0 +1,54 @@
+name: Build
+
+on:
+  workflow_dispatch:
+
+# Inspired from https://github.com/facebook/prophet/blob/main/.github/workflows/wheel.yml
+
+jobs:
+  build_wheels:
+    name: Build wheels on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        cibw_arch: ["native"]
+        cibw_build: ["cp311-* cp312-* cp313-*"]
+
+    steps:
+      - name: "Checkout repo"
+        uses: actions/checkout@v4
+
+      - name: "Build wheels"
+        uses: pypa/cibuildwheel@v2.21.1
+        with:
+          package-dir: python
+        env:
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014
+          CIBW_BUILD: ${{ matrix.cibw_build }}
+          CIBW_SKIP: "*musllinux*"
+          CIBW_ARCHS: ${{ matrix.cibw_arch }}
+          CIBW_BUILD_FRONTEND: build
+
+      - name: "Upload wheel as artifact"
+        uses: actions/upload-artifact@v4
+        with:
+            name: artifact-${{ matrix.os }}-${{ matrix.cibw_arch }}-wheel
+            path: "./**/*.whl"
+    
+  make-sdist:
+    name: Make source distribution
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: pipx run build --sdist
+        working-directory: python
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifact-source-dist
+          path: "./**/dist/*.tar.gz"
+
+    
