@@ -7,48 +7,133 @@ on:
 
 jobs:
   build_wheels:
-    name: Build wheels on ${{ matrix.os }}
+    name: Build wheel on ${{ matrix.os }} for ${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        #os: [ubuntu-latest]
+        #os: [windows-latest]
         os: [ubuntu-latest, windows-latest]
-        cibw_arch: ["native"]
-        cibw_build: ["cp311-* cp312-* cp313-*"]
+        mq-client-version: [9.3.0.0]
+        #python-version: ["3.11"]
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
+        #cibw_arch: ["native"]
+        #cibw_build: ["cp311-* cp312-* cp313-*"]
 
     steps:
-      - name: "Checkout repo"
-        uses: actions/checkout@v4
-
-      - name: "Build wheels"
-        uses: pypa/cibuildwheel@v2.21.1
+      - name: Cache MQ Client
+        uses: actions/cache@v4
         with:
-          package-dir: python
-        env:
-          CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014
-          CIBW_BUILD: ${{ matrix.cibw_build }}
-          CIBW_SKIP: "*musllinux*"
-          CIBW_ARCHS: ${{ matrix.cibw_arch }}
-          CIBW_BUILD_FRONTEND: build
+          path: ${{ github.workspace }}/setup-mqclient
+          key: mqclient-${{ runner.os }}-${{ matrix.mq-client-version }}
 
-      - name: "Upload wheel as artifact"
+      - name: Install MQ Client
+        id: setup-mqclient
+        uses: SeyfSV/setup-mqclient@v0.3
+        with:
+          mq-client-version: ${{ matrix.mq-client-version }}
+
+      - name: "Checkout repository"
+        uses: actions/checkout@v4
+      
+      - name: "Setup CPython"
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: "Install build essential"
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install build-essential
+
+      - name: "Build ${{ matrix.python-version }}"
+        env:
+          GITHUB_PATH: "${{ steps.setup-mqclient.outputs.mq-file-path }}/bin"
+          MQ_FILE_PATH: "${{ steps.setup-mqclient.outputs.mq-file-path }}"
+        run: |
+          pip install build wheel
+          python -m build --wheel --outdir .
+      
+      - name: Set GNU/Linux environment variable
+        if: runner.os == 'Linux'
+        run: echo "wheel_filename=$(find * -type f -name '*.whl')" >> $GITHUB_ENV
+
+      - name: Set Windows environment variable on Windows
+        if: runner.os == 'Windows'
+        run: echo ("wheel_filename=" + (Get-ChildItem $Path -File | Sort-Object LastWriteTime | Select -Last 1).Name) >> $env:GITHUB_ENV
+
+      # - name: "List folders"
+      #   run: |
+      #     ls -l
+      #     ls -lR
+      
+      - name: Upload ${{ env.wheel_filename }}
         uses: actions/upload-artifact@v4
         with:
-            name: artifact-${{ matrix.os }}-${{ matrix.cibw_arch }}-wheel
-            path: "./**/*.whl"
+          # pymqi-1.12.11-cp311-cp311-linux_x86_64.whl
+          name: ${{ env.wheel_filename }}
+          path: ${{ env.wheel_filename }}
     
-  make-sdist:
-    name: Make source distribution
-    runs-on: ubuntu-latest
+      # - name: "Echo mq file path"
+      #   run: |
+      #     echo ${{ steps.setup-mqclient.outputs.mq-file-path }}
+      #     ls -lR ${{ steps.setup-mqclient.outputs.mq-file-path }}
+
+      # - name: "Checkout repo"
+      #   uses: actions/checkout@v4
+      
+      # - name: Setup CPython
+      #   uses: actions/setup-python@v5
+      #   with:
+      #     python-version: '3.11'
+
+      # - name: Set up Docker
+      #   uses: docker/setup-docker-action@v4
+
+      # - name: Install cibuildwheel
+      #   env:
+      #     PATH: "${PATH}:${{ steps.setup-mqclient.outputs.mq-file-path }}/bin"
+      #   run: |
+      #     echo ${PATH}
+      #     pip install cibuildwheel==2.22.0
+      #     cibuildwheel --output-dir wheelhouse
     
-    steps:
-      - uses: actions/checkout@v4
 
-      - run: pipx run build --sdist
-        working-directory: python
+      # - name: Upload artifacts
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: cibw-wheels-${{ matrix.os }}-${{ strategy.job-index }}
+      #     path: ./wheelhouse/*.whl
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: artifact-source-dist
-          path: "./**/dist/*.tar.gz"
 
-    
+      # - name: "Build wheels"
+      #   uses: pypa/cibuildwheel@v2.22.0
+      #   env:
+      #     PATH: "${PATH}:${{ steps.setup-mqclient.outputs.mq-file-path }}/bin"
+      #     #MQ_FILE_PATH: ${{ steps.setup-mqclient.outputs.mq-file-path }}
+      #     CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014
+      #     CIBW_BUILD: ${{ matrix.cibw_build }}
+      #     #CIBW_SKIP: "*musllinux*"
+      #     CIBW_ARCHS: ${{ matrix.cibw_arch }}
+      #     CIBW_BUILD_FRONTEND: build
+
+      # - name: "Upload wheel as artifact"
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #       name: artifact-${{ matrix.os }}-${{ matrix.cibw_arch }}-wheel
+      #       path: "./**/*.whl"
+
+
+      # - name: "Checkout repo"
+      #   uses: actions/checkout@v4
+
+      # - name: "ls cwd"
+      #   run: |
+      #     ls -lR
+
+      # - name: Build wheels
+      #   uses: pypa/cibuildwheel@v2.22.0
+      #   env:
+      #     GITHUB_PATH: "${{ steps.setup-mqclient.outputs.mq-file-path }}/bin"
