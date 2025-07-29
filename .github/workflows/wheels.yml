@@ -1,0 +1,67 @@
+name: Build
+
+on:
+  workflow_dispatch:
+
+# Inspired from https://github.com/facebook/prophet/blob/main/.github/workflows/wheel.yml
+
+jobs:
+  build_wheels:
+    name: Build wheel on ${{ matrix.os }} for ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        mq-client-version: [9.3.0.0]
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Cache MQ Client
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/setup-mqclient
+          key: mqclient-${{ runner.os }}-${{ matrix.mq-client-version }}
+
+      - name: Install MQ Client
+        id: setup-mqclient
+        uses: SeyfSV/setup-mqclient@v0.3
+        with:
+          mq-client-version: ${{ matrix.mq-client-version }}
+
+      - name: "Checkout repository"
+        uses: actions/checkout@v4
+      
+      - name: "Setup CPython"
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: "Install build essential"
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install build-essential
+
+      - name: "Build ${{ matrix.python-version }}"
+        env:
+          GITHUB_PATH: "${{ steps.setup-mqclient.outputs.mq-file-path }}/bin"
+          MQ_FILE_PATH: "${{ steps.setup-mqclient.outputs.mq-file-path }}"
+        run: |
+          pip install build wheel
+          python -m build --wheel --outdir .
+      
+      - name: Set GNU/Linux environment variable
+        if: runner.os == 'Linux'
+        run: echo "wheel_filename=$(find * -type f -name '*.whl')" >> $GITHUB_ENV
+
+      - name: Set Windows environment variable on Windows
+        if: runner.os == 'Windows'
+        run: echo ("wheel_filename=" + (Get-ChildItem $Path -File | Sort-Object LastWriteTime | Select -Last 1).Name) >> $env:GITHUB_ENV
+      
+      - name: Upload ${{ env.wheel_filename }}
+        uses: actions/upload-artifact@v4
+        with:
+          # pymqi-1.12.11-cp311-cp311-linux_x86_64.whl
+          name: ${{ env.wheel_filename }}
+          path: ${{ env.wheel_filename }}
